@@ -105,14 +105,19 @@ control Ingress(
 
     action send(PortId_t port) {
         ig_tm_md.ucast_egress_port = port;
-        ig_tm_md.bypass_egress = 1;
+        ig_tm_md.bypass_egress = 1w1;
     }
     
     // Recirculate the packet to the recirculation port
     // Decrease the recirculation number
-    action recirculate(PortId_t recirc_port){
-        ig_intr_tm_md.ucast_egress_port = recirc_port;
-        hdr.rec.rec_num = hdr.rec.rec_num - 1;      
+    // action recirculate(PortId_t recirc_port){
+    //     ig_intr_tm_md.ucast_egress_port = recirc_port;
+    //     hdr.rec.rec_num = hdr.rec.rec_num - 1;      
+    // }
+
+    action recir(PortId_t recirc_port){
+        recirculate(recirc_port);
+        hdr.rec.rec_num = hdr.rec.rec_num - 1;
     }
 
     // ipv4 table used to forward packets
@@ -136,7 +141,7 @@ control Ingress(
                 if (hdr.rec.rec_num == 0) {
                     send(1);
                 } else {
-                    recirculate(rec_port);
+                    recir(rec_port);
                 }
             }
         }
