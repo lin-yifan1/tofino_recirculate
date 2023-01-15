@@ -8,8 +8,6 @@ def handle_pkt(pkt):
     if Rec in pkt:
         print("got a packet")
         pkt.show2()
-#        hexdump(pkt)
-#        print "len(pkt) = ", len(pkt)
         sys.stdout.flush()
 
 
