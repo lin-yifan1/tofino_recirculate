@@ -103,6 +103,17 @@ control SwitchIngress(
         hdr.rec.rec_num = hdr.rec.rec_num - 1;      
     }
 
+    table rec_num_table {
+        key = {
+            hdr.rec.rec_num : exact;
+        }
+        actions = {
+            send;
+            recirculate;
+        }
+        default_action = recirculate(rec_port);
+    }
+
     apply {
         // if (hdr.rec.rec_num == 0) {
         //     send(1);
@@ -110,10 +121,10 @@ control SwitchIngress(
         //     recirculate(rec_port);
         // }
 
-        send(1);
+        rec_num_table.apply();
 
         // No need for egress processing, skip it and use empty controls for egress.
-        ig_intr_tm_md.bypass_egress = 1w1;
+        ig_intr_tm_md.bypass_egress = 1;
     }
 
 }

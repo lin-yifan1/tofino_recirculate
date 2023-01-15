@@ -22,7 +22,7 @@ def main():
     #     pkt =  Ether()
     #     pkt = pkt / IP(src="{}.{}.{}.{}".format(ip_1, ip_2, ip_3, ip_4)) / TCP(dport=1234, sport=random.randint(49152,65535)) 
 
-    sendp(pkt, iface="veth4", verbose=False)
+    sendp(pkt, iface="veth251", verbose=False)
 
 
 if __name__ == '__main__':
