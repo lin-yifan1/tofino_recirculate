@@ -8,7 +8,8 @@ class ts(Packet):
     fields_desc = [
         ShortField("pid", 0),
         ShortField("rec_num", 0),
-        IntField("ts", 0)
+        IntField("ts", 0),
+        ByteField("flag", 0)
     ]
 
 

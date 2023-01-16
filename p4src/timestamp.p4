@@ -7,23 +7,24 @@
 #include <tna.p4>
 #endif
 
-const bit<16> TYPE_REC = 0x1212;
+const bit<16> TYPE_TS = 0x1212;
 const bit<16> TYPE_IPV4 = 0x800;
 const PortId_t rec_port = 68;       // recirculation port
-const bit<32> latency = 5000000;   // latency  - 10000000 - 10ms
+const bit<32> latency = 100000000;   // 100000000 nanoseconds - 100ms
 
 #include "common/headers.p4"
 #include "common/util.p4"
 
-header rec_h {
+header ts_h {
     bit<16> proto_id;
     bit<16> rec_num; // switch needs to recirculate the packet rec_num times
-    bit<32> ts;
+    bit<32> ts; // record the initial timestamp
+    bit<8>  flag; // when the total recirculation time exceeds latency, flag=1
 }
 
 struct headers {
     ethernet_h   ethernet;
-    rec_h        rec;
+    ts_h         timestamp;
     ipv4_h       ipv4;
 }
 
@@ -50,15 +51,15 @@ parser SwitchIngressParser(
     state parse_ethernet {
         pkt.extract(hdr.ethernet);
         transition select (hdr.ethernet.ether_type) {
-            TYPE_REC : parse_rec;
+            TYPE_TS : parse_ts;
             TYPE_IPV4 : parse_ipv4;
             default : reject;
         }
     }
 
-    state parse_rec {
-        pkt.extract(hdr.rec);
-        transition select (hdr.rec.proto_id) {
+    state parse_ts {
+        pkt.extract(hdr.timestamp);
+        transition select (hdr.timestamp.proto_id) {
             TYPE_IPV4 : parse_ipv4;
             default : reject;
         }
@@ -96,11 +97,12 @@ control SwitchIngress(
     Register <bit<32>, _> (32w1)  tscal;
 
     RegisterAction<bit<32>, bit<1>, bit<8>>(tscal) tscal_action = {
-        void apply(inout bit<32> value, out bit<8> readvalue){
+        void apply(inout bit<32> value, out bit<8> readvalue) {
             value = 0;
             if (ig_md.ts_diff > latency){
                 readvalue = 1;
-            }else {
+            }
+            else {
                 readvalue = 0;
             }
         }
@@ -108,11 +110,7 @@ control SwitchIngress(
 
     // Calculate the difference between the initial timestamp and the current timestamp
     action comp_diff() {
-        ig_md.ts_diff = ig_intr_md.ingress_mac_tstamp[31:0] - hdr.rec.ts;
-    }
-
-    action drop() {
-        ig_intr_dprsr_md.drop_ctl = 0x1;
+        ig_md.ts_diff = ig_intr_md.ingress_mac_tstamp[31:0] - hdr.timestamp.ts;
     }
 
     action send(PortId_t port) {
@@ -121,33 +119,56 @@ control SwitchIngress(
 
     // Recirculate the packet to the recirculation port
     // Decrease the recirculation number
-    action recirculate(PortId_t recirc_port){
-        ig_intr_tm_md.ucast_egress_port = recirc_port;
-        hdr.rec.rec_num = hdr.rec.rec_num + 1;      
+    action recirculate(){
+        ig_intr_tm_md.ucast_egress_port = rec_port;
+        hdr.timestamp.rec_num = hdr.timestamp.rec_num + 1;      
     }
 
-    apply {
-        // if (hdr.rec.rec_num == 0) {
-        //     send(1);
-        // } else {
-        //     recirculate(rec_port);
-        // }
+    // action init_ts() {
+    //     hdr.timestamp.ts = ig_intr_md.ingress_mac_tstamp[31:0];
+    // }
 
-        // Save the initial timestamp (ingress_mac_tstamp) in the recirculation header - ts
-        if (hdr.rec.rec_num == 0) {
-            hdr.rec.ts = ig_intr_md.ingress_mac_tstamp[31:0];
+    // action flag_cal() {
+    //     ig_md.ts_diff = 0;
+    //     comp_diff();
+    //     hdr.timestamp.flag = tscal_action.execute(1);
+    // }
+
+    // table rec_num_table {
+    //     key = {
+    //         hdr.timestamp.rec_num : exact;
+    //     }
+    //     actions = {
+    //         init_ts;
+    //         flag_cal;
+    //     }
+    //     default_action = flag_cal();
+    //     size = 1;
+    // }
+    // add_with_init_ts(rec_num=0)
+
+    table flag_table {
+        key = {
+            hdr.timestamp.flag : exact;
         }
+        actions = {
+            send;
+            recirculate;
+        }
+        default_action = recirculate();
+        size = 1;
+    }
+    // add_with_send(flag=1, port=1)
 
-        bit<8> value_tscal;
+    apply {
+        if (hdr.timestamp.rec_num == 0) {
+            hdr.timestamp.ts = ig_intr_md.ingress_mac_tstamp[31:0];
+        }
         ig_md.ts_diff = 0;
         comp_diff();
-        value_tscal = tscal_action.execute(1);
-        if (value_tscal == 1){
-            send(1);
-        }
-        else {
-            recirculate(rec_port);          
-        }
+        hdr.timestamp.flag = tscal_action.execute(1);
+
+        flag_table.apply();        
 
         // No need for egress processing, skip it and use empty controls for egress.
         ig_intr_tm_md.bypass_egress = 1w1;
